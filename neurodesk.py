@@ -2,6 +2,7 @@ import sys
 import argparse
 import configparser
 import pathlib
+import os
 
 
 class SystemPath:
@@ -16,7 +17,7 @@ class SystemPath:
     def user_input(cls, description="File or Dir path"):
         while True:
             try:
-                user_input_path = pathlib.Path(input(f'Enter {description}: ')).resolve(strict=True) 
+                user_input_path = pathlib.Path(input(f'Enter {description}: ')).resolve(strict=True)
                 cls.is_valid(user_input_path)               
                 return cls(user_input_path)
             except FileNotFoundError:
@@ -68,23 +69,33 @@ def read_config():
     print(config['neurodesk']['InstallationDir'])
 
 
-def user_config():
-    while True:
-        try:
-            local_applications_menu = pathlib.Path(input('/etc/xdg/menus/lxde-applications.menu')).resolve(strict=True)
-            break
-        except FileNotFoundError:
-            print('File Not Found. Please enter valid file')
-            continue
+# def user_config():
+#     while True:
+#         try:
+#             input_installation_dir = pathlib.Path(input('installation dir:')).resolve(strict=True)
+#             input_applications_menu = pathlib.Path(input('applications.menu:')).resolve(strict=True)
+#             input_applications_dir = pathlib.Path(input('applications dir:')).resolve(strict=True)
+#             input_desktop_directories_dir = pathlib.Path(input('desktop directories dir:')).resolve(strict=True)
+#             break
+#         except FileNotFoundError:
+#             print('File Not Found. Please enter valid file')
+#             continue
 
 
 if __name__ == "__main__":
+    # Check if OS is Linux/posix based
+    if os.name != 'posix':
+        raise OSError
+
     args = get_args()
-    # user_config()
-    # write_config()
     # read_config()
 
     if args.init:
-        local_applications_menu = SystemFile.user_input('Local Application Menu')
-        local_applications_dir = SystemDir.user_input('Local Applications Directory')
-        local_desktop_directories_dir = SystemDir.user_input('Local Desktop Directory')
+        config = configparser.ConfigParser()
+        with open('neurodesk.ini', 'w') as configfile:
+            config['neurodesk'] = {'InstallationDir': pathlib.Path.cwd()}
+            config.write(configfile)
+            installation_dir = SystemDir.user_input('Installation Directory')
+            local_applications_menu = SystemFile.user_input('Local Application Menu')
+            local_applications_dir = SystemDir.user_input('Local Applications Directory')
+            local_desktop_directories_dir = SystemDir.user_input('Local Desktop Directory')
