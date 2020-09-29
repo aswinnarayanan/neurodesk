@@ -3,49 +3,17 @@ import argparse
 import configparser
 import pathlib
 import os
+import signal
+import sys
 
+# CLI signal handler for safe Ctrl-C
+def signal_handler(signal, frame):
+        print('\nExiting ...')
+        sys.exit(0)
+signal.signal(signal.SIGINT, signal_handler)
 
-class SystemPath:
-    def __init__(self, path):
-        self.path = path
-
-    def __str__(self):
-        return self.path
-
-    @classmethod
-    def user_input(cls, description="File or Dir path", is_valid=False):
-        while True:
-            try:
-                user_input_path = pathlib.Path(input(f'Enter {description}: ')).resolve(strict=False)
-                if is_valid:
-                    cls.is_valid(user_input_path)               
-                return cls(user_input_path)
-            except FileNotFoundError:
-                print('Path Not Found. Please enter valid path')
-                continue
-            except NotADirectoryError:
-                print('Path not Dir. Please enter valid dir')
-                continue
-
-    def display(self):
-        print(f'Found {self.path}')
-
-    @staticmethod
-    def is_valid(path):
-        if not path.exists():
-            raise FileNotFoundError
-
-class SystemFile(SystemPath):
-    @staticmethod
-    def is_valid(path):
-        if not path.is_file():
-            raise FileNotFoundError
-
-class SystemDir(SystemPath):
-    @staticmethod
-    def is_valid(path):
-        if not path.is_dir():
-            raise NotADirectoryError
+# Global config file
+CONFIG_FILE = 'neurodesk.ini'
 
 
 def get_args():
@@ -56,16 +24,52 @@ def get_args():
     return args
 
 
-def write_config():
-    config = configparser.ConfigParser()
-    config['neurodesk'] = {'InstallationDir': pathlib.Path.cwd()}
-    with open('neurodesk.ini', 'w') as configfile:
-        config.write(configfile)
+def check_path(path_string, is_dir, create=False):
+    if path_string:
+        try:
+            input_path = pathlib.Path(path_string).resolve(strict=True)
+        except FileNotFoundError:
+            input_path = pathlib.Path(path_string).resolve(strict=False)
+            print(f'{input_path} not found')
+            if create:
+                input(f'Creating {input_path}. Press Enter to continue...')
+                try:
+                    input_path.mkdir(parents=True, exist_ok=False)
+                except PermissionError:
+                    print(f'PermissionError creating {input_path}')
+                    return None
+            else:
+                return None
+        if os.access(input_path, os.W_OK):
+            return input_path
+        else:
+            print(f'{input_path} not writable')
+            return None
+    else:
+        return None
 
+def from_config_or_input(config, section, name, description, is_dir, create, force_input=False):
+    try:
+        path_string = config.get(section, name)
+    except (configparser.NoSectionError, configparser.NoOptionError):
+        path_string = None
 
-def read_config():
-    config = configparser.ConfigParser()
-    config.read('neurodesk.ini')
+    input_path = check_path(path_string, is_dir)
+    while force_input or not input_path:
+        path_string = input(f'Enter new {description} (Press [Enter] to skip): ')
+        input_path = check_path(path_string, is_dir) or input_path
+        if input_path and input_path.exists():
+            break
+        else:
+            print('Invalid. Retry ...')
+            continue
+
+    config[section][name] = str(input_path)
+    with open(CONFIG_FILE, 'w+') as fh:
+        config.write(fh)
+
+    return input_path
+
 
 
 if __name__ == "__main__":
@@ -74,22 +78,28 @@ if __name__ == "__main__":
         raise OSError
 
     args = get_args()
-    read_config()
+    config = configparser.ConfigParser()
+    config.read(CONFIG_FILE)
 
-    if args.init:
-        config = configparser.ConfigParser()
-        with open('neurodesk.ini', 'w') as configfile:
-            config['neurodesk'] = {'InstallationDir': pathlib.Path.cwd()}
-            config.write(configfile)
+    args.init = True
 
-            installation_dir = SystemDir.user_input('Installation Directory')
-            installation_dir.display()
-            
-            local_applications_menu = SystemFile.user_input('Local Application Menu')
-            local_applications_menu.display()
+    installation_dir = from_config_or_input(
+        config=config, section='neurodesk',
+        name='installation_dir', description='Installation Directory', 
+        is_dir=True, create=True, force_input=args.init)
 
-            local_applications_dir = SystemDir.user_input('Local Applications Directory')
-            local_applications_dir.display()
+    local_applications_dir = from_config_or_input(
+        config=config, section='neurodesk',
+        name='local_applications_dir', description='Local Applications Directory', 
+        is_dir=True, create=False, force_input=args.init)
 
-            local_desktop_directories_dir = SystemDir.user_input('Local Desktop Directory')
-            local_desktop_directories_dir.display()
+    local_desktop_directories_dir = from_config_or_input(
+        config=config, section='neurodesk',
+        name='local_desktop_directories_dir', description='Local Desktop Directory', 
+        is_dir=True, create=False, force_input=args.init)
+
+    local_applications_menu = from_config_or_input(
+        config=config, section='neurodesk',
+        name='local_applications_menu', description='Local Application Menu', 
+        is_dir=False, create=False, force_input=args.init)
+
